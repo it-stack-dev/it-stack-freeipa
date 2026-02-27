@@ -1,0 +1,34 @@
+# Lab 03 — Advanced Features: freeipa with TLS, resource limits, logging
+---
+services:
+  freeipa:
+    image: freeipa/freeipa-server:rocky-9
+    container_name: it-stack-freeipa
+    restart: unless-stopped
+    ports:
+      - "389:$firstPort"
+    environment:
+      - IT_STACK_ENV=lab-03-advanced
+      - TLS_ENABLED=true
+    volumes:
+      - freeipa_data:/var/lib/freeipa
+      - ./certs:/etc/ssl/certs:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: G
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+    networks:
+      - it-stack-net
+
+networks:
+  it-stack-net:
+    driver: bridge
+
+volumes:
+  freeipa_data:

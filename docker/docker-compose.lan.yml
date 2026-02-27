@@ -1,0 +1,36 @@
+# Lab 02 — External Dependencies: freeipa with external PostgreSQL and Redis
+---
+services:
+  freeipa:
+    image: freeipa/freeipa-server:rocky-9
+    container_name: it-stack-freeipa
+    restart: unless-stopped
+    ports:
+      - "389:$firstPort"
+    environment:
+      - IT_STACK_ENV=lab-02-lan
+      - DB_HOST=
+      - DB_PORT=5432
+      - REDIS_HOST=
+    networks:
+      - it-stack-net
+
+  # Lightweight local DB for lab (replace with lab-db1 in real env)
+  postgres:
+    image: postgres:16
+    container_name: it-stack-freeipa-db
+    environment:
+      POSTGRES_DB: freeipa_db
+      POSTGRES_USER: freeipa_user
+      POSTGRES_PASSWORD: freeipa_pass
+    volumes:
+      - freeipa_pg_data:/var/lib/postgresql/data
+    networks:
+      - it-stack-net
+
+networks:
+  it-stack-net:
+    driver: bridge
+
+volumes:
+  freeipa_pg_data:

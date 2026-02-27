@@ -1,0 +1,29 @@
+# Lab 01 — Standalone: Complete FreeIPA LDAP/Kerberos identity provider in isolation
+# No external dependencies required.
+---
+services:
+  freeipa:
+    image: freeipa/freeipa-server:rocky-9
+    container_name: it-stack-freeipa
+    restart: unless-stopped
+    ports:
+      - "389:$firstPort"
+    environment:
+      - IT_STACK_ENV=lab-01-standalone
+    volumes:
+      - freeipa_data:/var/lib/freeipa
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - it-stack-net
+
+networks:
+  it-stack-net:
+    driver: bridge
+
+volumes:
+  freeipa_data:

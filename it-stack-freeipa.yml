@@ -1,0 +1,59 @@
+# it-stack-freeipa.yml — IT-Stack Module Manifest
+# Module 01: FreeIPA LDAP/Kerberos identity provider
+
+module:
+  name: freeipa
+  number: "01"
+  repo: it-stack-dev/it-stack-freeipa
+  version: "0.1.0"
+  phase: 1
+  category: identity
+  server: lab-id1
+  description: "FreeIPA LDAP/Kerberos identity provider"
+
+upstream:
+  name: FreeIPA
+  image: freeipa/freeipa-server:rocky-9
+  license: GPL-3.0
+
+ports:
+  - 389 (LDAP)
+   - 636 (LDAPS)
+   - 88 (Kerberos)
+   - 53 (DNS)
+
+labs:
+  - id: "01-01"
+    name: Standalone
+    docker_compose: docker/docker-compose.standalone.yml
+    test_script: tests/labs/test-lab-01-01.sh
+  - id: "01-02"
+    name: External Dependencies
+    docker_compose: docker/docker-compose.lan.yml
+    test_script: tests/labs/test-lab-01-02.sh
+  - id: "01-03"
+    name: Advanced Features
+    docker_compose: docker/docker-compose.advanced.yml
+    test_script: tests/labs/test-lab-01-03.sh
+  - id: "01-04"
+    name: SSO Integration
+    docker_compose: docker/docker-compose.sso.yml
+    test_script: tests/labs/test-lab-01-04.sh
+  - id: "01-05"
+    name: Advanced Integration
+    docker_compose: docker/docker-compose.integration.yml
+    test_script: tests/labs/test-lab-01-05.sh
+  - id: "01-06"
+    name: Production Deployment
+    docker_compose: docker/docker-compose.production.yml
+    test_script: tests/labs/test-lab-01-06.sh
+
+resources:
+  cpu_cores: 2
+  ram_gb: 4
+  disk_gb: 20
+
+health_check:
+  endpoint: /health
+  metrics_endpoint: /metrics
+  log_path: /var/log/freeipa/
