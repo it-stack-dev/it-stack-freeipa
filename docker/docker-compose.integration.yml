@@ -1,26 +1,143 @@
-# Lab 05 — Advanced Integration: freeipa with full IT-Stack ecosystem
----
 services:
+
+  # ── FreeIPA identity directory ────────────────────────────────────
   freeipa:
-    image: freeipa/freeipa-server:rocky-9
-    container_name: it-stack-freeipa
-    restart: unless-stopped
-    ports:
-      - "389:$firstPort"
+    image: freeipa/freeipa-server:fedora-41
+    container_name: freeipa-lab05
+    hostname: ipa.lab.local
+    privileged: true
+    tty: true
+    stdin_open: true
     environment:
-      - IT_STACK_ENV=lab-05-integration
-      - KEYCLOAK_URL=
-      - DB_HOST=
-      - REDIS_HOST=
-      - SMTP_HOST=
-      - GRAYLOG_HOST=
-    extra_hosts:
-      - "lab-id1:10.0.50.11"
-      - "lab-db1:10.0.50.12"
-      - "lab-proxy1:10.0.50.15"
+      IPA_SERVER_IP: 172.21.0.10
+      IPA_SERVER_HOSTNAME: ipa.lab.local
+    command:
+      - ipa-server-install
+      - --unattended
+      - --realm=LAB.LOCAL
+      - --domain=lab.local
+      - --ds-password=Lab05Password!
+      - --admin-password=Lab05Password!
+      - --no-ntp
+      - --no-host-dns
+      - --setup-dns
+      - --auto-forwarders
+    volumes:
+      - freeipa-int:/data
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+    tmpfs:
+      - /run
+      - /tmp
+    ports:
+      - "389:389"
+      - "636:636"
+      - "88:88/tcp"
+      - "88:88/udp"
     networks:
-      - it-stack-net
+      ipa-int-net:
+        ipv4_address: 172.21.0.10
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+    healthcheck:
+      test: ["CMD", "ipa", "user-find", "--all"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+
+  # ── Keycloak DB ───────────────────────────────────────────────────
+  kc-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: kcadmin
+      POSTGRES_PASSWORD: Lab05Password!
+    networks:
+      - kc-db-net
+    volumes:
+      - kc-db-int:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kcadmin"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ── Keycloak: federates FreeIPA users via LDAP ────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    command: start-dev
+    depends_on:
+      kc-db:
+        condition: service_healthy
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: Lab05Password!
+      KC_DB: postgres
+      KC_DB_URL: "jdbc:postgresql://kc-db:5432/keycloak"
+      KC_DB_USERNAME: kcadmin
+      KC_DB_PASSWORD: Lab05Password!
+      KC_HTTP_PORT: "8080"
+      KC_HOSTNAME_STRICT: "false"
+      KC_PROXY: edge
+    ports:
+      - "8080:8080"
+    networks:
+      - ipa-int-net
+      - kc-db-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # ── PostgreSQL: app database with LDAP auth attempted ─────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: labapp
+      POSTGRES_USER: labadmin
+      POSTGRES_PASSWORD: Lab05Password!
+    ports:
+      - "5432:5432"
+    networks:
+      - ipa-int-net
+    volumes:
+      - pg-int:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labadmin"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  # ── Redis: shared session store ────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    command: redis-server --requirepass Lab05Password! --appendonly yes
+    ports:
+      - "6379:6379"
+    networks:
+      - ipa-int-net
+    volumes:
+      - redis-int:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "Lab05Password!", "--no-auth-warning", "PING"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
 
 networks:
-  it-stack-net:
+  ipa-int-net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+  kc-db-net:
+    driver: bridge
+    internal: true
+
+volumes:
+  freeipa-int:
+  kc-db-int:
+  pg-int:
+  redis-int:

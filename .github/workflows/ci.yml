@@ -25,9 +25,15 @@ jobs:
           echo "Validating: docker/docker-compose.lan.yml"
           docker compose -f docker/docker-compose.lan.yml config -q
           echo "OK: docker/docker-compose.lan.yml"
-          for f in docker/docker-compose.advanced.yml \
-                   docker/docker-compose.sso.yml docker/docker-compose.integration.yml \
-                   docker/docker-compose.production.yml; do
+          for f in docker/docker-compose.advanced.yml docker/docker-compose.sso.yml; do
+            echo "Checking scaffold: $f"
+            docker compose -f "$f" config --no-interpolate -q 2>&1 && echo "OK: $f" \
+              || echo "WARN: $f has placeholder variables (scaffold — not yet built out)"
+          done
+          echo "Validating: docker/docker-compose.integration.yml"
+          docker compose -f docker/docker-compose.integration.yml config -q
+          echo "OK: docker/docker-compose.integration.yml"
+          for f in docker/docker-compose.production.yml; do
             echo "Checking scaffold: $f"
             docker compose -f "$f" config --no-interpolate -q 2>&1 && echo "OK: $f" \
               || echo "WARN: $f has placeholder variables (scaffold — not yet built out)"
@@ -180,3 +186,28 @@ jobs:
         run: |
           sudo apt-get install -y shellcheck -qq
           shellcheck tests/labs/test-lab-01-04.sh
+
+  lab-05-smoke:
+    name: Lab 05 -- FreeIPA+KC+PG+Redis integration (syntax check only)
+    runs-on: ubuntu-latest
+    needs: validate
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate integration compose (pull images -- FreeIPA is privileged)
+        run: |
+          echo "NOTE: FreeIPA Lab 05 requires privileged + full IPA init (~5min); runs on real VMs"
+          docker compose -f docker/docker-compose.integration.yml pull --quiet
+          echo "Images pulled OK"
+
+      - name: Validate compose config
+        run: docker compose -f docker/docker-compose.integration.yml config -q
+
+      - name: Verify test script syntax
+        run: bash -n tests/labs/test-lab-01-05.sh
+
+      - name: ShellCheck test script
+        run: |
+          sudo apt-get install -y shellcheck -qq
+          shellcheck tests/labs/test-lab-01-05.sh
