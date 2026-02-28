@@ -1,23 +1,57 @@
-# Lab 01 — Standalone: Complete FreeIPA LDAP/Kerberos identity provider in isolation
-# No external dependencies required.
+# Lab 01-01 — Standalone: FreeIPA in complete isolation
+# Purpose : Verify FreeIPA install — LDAP, Kerberos, DNS, HTTP UI
+# Duration: 45–60 minutes  |  Machines: 1
+# Note    : FreeIPA requires systemd — privileged mode needed for Docker lab
+#           First run takes 10–20 minutes to complete ipa-server-install
+# Usage   : docker compose -f docker/docker-compose.standalone.yml up -d
 ---
 services:
   freeipa:
-    image: freeipa/freeipa-server:rocky-9
-    container_name: it-stack-freeipa
+    image: freeipa/freeipa-server:ubuntu-22.04
+    container_name: it-stack-freeipa-lab01
     restart: unless-stopped
+    hostname: freeipa.lab.localhost
+    # FreeIPA requires specific capabilities and systemd support
+    privileged: true
+    security_opt:
+      - seccomp:unconfined
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
     ports:
-      - "389:$firstPort"
+      - "80:80"
+      - "443:443"
+      - "389:389"
+      - "636:636"
+      - "88:88"
+      - "88:88/udp"
+      - "464:464"
+      - "464:464/udp"
+      - "53:53/udp"
     environment:
-      - IT_STACK_ENV=lab-01-standalone
+      # ipa-server-install will run on first start if /data is empty
+      IPA_SERVER_INSTALL_OPTS: >-
+        --unattended
+        --realm=LAB.LOCALHOST
+        --domain=lab.localhost
+        --ds-password=Lab01DsPassword!
+        --admin-password=Lab01Password!
+        --no-ntp
+        --no-sshd
+        --no-ui-redirect
+        --setup-dns
+        --forwarder=1.1.1.1
+        --auto-reverse
     volumes:
-      - freeipa_data:/var/lib/freeipa
+      - freeipa_data:/data:Z
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+    stop_grace_period: 60s
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost/health || exit 1"]
+      # ipa services are up when ipactl status returns 0
+      test: ["CMD-SHELL", "ipactl status > /dev/null 2>&1 || exit 1"]
       interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      timeout: 15s
+      retries: 40        # 40 × 30s = 20 min max wait
+      start_period: 300s # 5 min before first check
     networks:
       - it-stack-net
 
@@ -27,3 +61,4 @@ networks:
 
 volumes:
   freeipa_data:
+    name: it-stack-freeipa-lab01-data
