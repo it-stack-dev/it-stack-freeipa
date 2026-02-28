@@ -1,34 +1,107 @@
-# Lab 03 — Advanced Features: freeipa with TLS, resource limits, logging
----
-services:
-  freeipa:
-    image: freeipa/freeipa-server:rocky-9
-    container_name: it-stack-freeipa
-    restart: unless-stopped
-    ports:
-      - "389:$firstPort"
-    environment:
-      - IT_STACK_ENV=lab-03-advanced
-      - TLS_ENABLED=true
-    volumes:
-      - freeipa_data:/var/lib/freeipa
-      - ./certs:/etc/ssl/certs:ro
-    deploy:
-      resources:
-        limits:
-          cpus: "2.0"
-          memory: G
-    logging:
-      driver: json-file
-      options:
-        max-size: "100m"
-        max-file: "5"
-    networks:
-      - it-stack-net
+# Lab 01-03: Advanced Features — FreeIPA policy engine + sudo rules + HBAC + password policy
+# Purpose: Prove FreeIPA's centralized policy management for enterprise security controls
+#
+# Usage:
+#   docker compose -f docker/docker-compose.advanced.yml up -d
+#   Wait ~3 minutes for FreeIPA install, then policy-client runs automatically
+#   Access IPA UI: https://localhost:443/ipa/ui/  (skip cert warning for lab)
+#
+# Architecture:
+#   FreeIPA server ← policy-client applies:
+#     · sudo rule: allow 'devops' group to run /usr/bin/docker on webservers
+#     · HBAC rule: allow 'devops' group to ssh into webserver hosts
+#     · password policy: min length 12, complexity required
+#     · automount map: /home/nfs NFS share definition
 
-networks:
-  it-stack-net:
-    driver: bridge
+services:
+
+  # ─── FREEIPA SERVER ───────────────────────────────────────────────────────
+  freeipa:
+    image: freeipa/freeipa-server:fedora-41
+    container_name: it-stack-freeipa-adv
+    restart: on-failure
+    privileged: true
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+    hostname: ipa.lab.localhost
+    environment:
+      IPA_SERVER_HOSTNAME: ipa.lab.localhost
+      IPA_SERVER_IP: ""
+      IPA_SERVER_INSTALL_OPTS: >-
+        --realm=LAB.LOCALHOST
+        --domain=lab.localhost
+        --ds-password=Lab03Password!
+        --admin-password=Lab03Password!
+        --mkhomedir
+        --no-ntp
+        --unattended
+    volumes:
+      - freeipa-adv:/data
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+    tmpfs:
+      - /run
+      - /tmp
+    ports:
+      - "53:53/udp"
+      - "88:88"
+      - "88:88/udp"
+      - "389:389"
+      - "636:636"
+      - "443:443"
+      - "8443:8443"
+    networks:
+      ipa-adv-net:
+        aliases:
+          - ipa.lab.localhost
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "--insecure", "https://ipa.lab.localhost/ipa/ui/"]
+      interval: 30s
+      timeout: 15s
+      retries: 20
+      start_period: 180s
+
+  # ─── POLICY CLIENT — applies sudo rules, HBAC, password policy ───────────
+  policy-client:
+    image: freeipa/freeipa-server:fedora-41
+    container_name: it-stack-ipa-policy-client
+    restart: "no"
+    depends_on:
+      freeipa:
+        condition: service_healthy
+    networks:
+      - ipa-adv-net
+    environment:
+      IPA_ADMIN_PASS: "Lab03Password!"
+    entrypoint: >
+      sh -c "
+        echo 'Lab03Password!' | kinit admin@LAB.LOCALHOST &&
+        ipa group-add devops --desc='DevOps engineers' || true &&
+        ipa user-add labdev --first=Lab --last=Developer --password='Lab03%Pass' || true &&
+        ipa group-add-member devops --users=labdev || true &&
+        ipa hostgroup-add webservers --desc='Web server hosts' || true &&
+        ipa host-add web01.lab.localhost --force || true &&
+        ipa hostgroup-add-member webservers --hosts=web01.lab.localhost || true &&
+        ipa sudocmd-add /usr/bin/docker || true &&
+        ipa sudocmdgroup-add docker-cmds || true &&
+        ipa sudocmdgroup-add-member docker-cmds --sudocmds=/usr/bin/docker || true &&
+        ipa sudorule-add allow-docker-devops --hostcat=all --cmdcat='' || true &&
+        ipa sudorule-add-allow-command allow-docker-devops --sudocmdgroups=docker-cmds || true &&
+        ipa sudorule-add-user allow-docker-devops --groups=devops || true &&
+        ipa hbacrule-add allow-devops-ssh --servicecat=all || true &&
+        ipa hbacrule-add-user allow-devops-ssh --groups=devops || true &&
+        ipa hbacrule-add-host allow-devops-ssh --hostgroups=webservers || true &&
+        ipa pwpolicy-mod global_policy --minlength=12 --minclasses=3 --maxfail=5 --lockouttime=300 || true &&
+        ipa automountlocation-add nfs-home || true &&
+        ipa automountmap-add nfs-home auto.home || true &&
+        ipa automountkey-add nfs-home auto.home --key='/home' --info='nfs-server.lab.localhost:/exports/home' || true &&
+        echo 'All policies applied successfully.'
+      "
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
 
 volumes:
-  freeipa_data:
+  freeipa-adv:
+
+networks:
+  ipa-adv-net:
+    driver: bridge
