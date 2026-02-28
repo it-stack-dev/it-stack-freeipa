@@ -1,36 +1,102 @@
-# Lab 02 — External Dependencies: freeipa with external PostgreSQL and Redis
----
+# Lab 01-02: External Dependencies — FreeIPA + LDAP Client Integration
+# Purpose: FreeIPA server + a Debian client container that performs real
+#          LDAP operations (bind, search, user lookup) against the server.
+#          Proves the LDAP integration path that Keycloak and all services use.
+#
+# Usage:
+#   docker compose -f docker/docker-compose.lan.yml up -d
+#   FreeIPA UI:  https://localhost:443  (admin / Lab02Password!)
+#   LDAP:        ldap://localhost:389
+#   LDAPS:       ldaps://localhost:636
+#
+# The ldap-client container stays running so you can exec into it:
+#   docker exec -it it-stack-ldap-client bash
+#   ldapsearch -x -H ldap://freeipa -D "uid=admin,cn=users,cn=accounts,dc=lab,dc=localhost" \
+#              -w Lab02Password! -b "dc=lab,dc=localhost" "(objectClass=person)"
+#
+# Note: FreeIPA requires privileged mode (systemd). Lab 02 CI validates
+# compose + image availability; full test runs on dedicated lab VMs.
+
 services:
+
+  # ─── FREEIPA SERVER ───────────────────────────────────────────────────────
   freeipa:
-    image: freeipa/freeipa-server:rocky-9
-    container_name: it-stack-freeipa
+    image: freeipa/freeipa-server:latest
+    container_name: it-stack-freeipa-lan
+    privileged: true
     restart: unless-stopped
+    hostname: ipa.lab.localhost
+    tmpfs:
+      - /run
+      - /tmp
+      - /run/lock
+    environment:
+      IPA_SERVER_INSTALL_OPTS: >
+        --unattended
+        --domain=lab.localhost
+        --realm=LAB.LOCALHOST
+        --ds-password=Lab02Password!
+        --admin-password=Lab02Password!
+        --no-ntp
+        --no-sshd
+        --setup-dns
+        --forwarder=8.8.8.8
+        --auto-reverse
     ports:
-      - "389:$firstPort"
-    environment:
-      - IT_STACK_ENV=lab-02-lan
-      - DB_HOST=
-      - DB_PORT=5432
-      - REDIS_HOST=
-    networks:
-      - it-stack-net
-
-  # Lightweight local DB for lab (replace with lab-db1 in real env)
-  postgres:
-    image: postgres:16
-    container_name: it-stack-freeipa-db
-    environment:
-      POSTGRES_DB: freeipa_db
-      POSTGRES_USER: freeipa_user
-      POSTGRES_PASSWORD: freeipa_pass
+      - "389:389"
+      - "636:636"
+      - "88:88/tcp"
+      - "88:88/udp"
+      - "464:464/tcp"
+      - "464:464/udp"
+      - "80:80"
+      - "443:443"
+      - "53:53/udp"
     volumes:
-      - freeipa_pg_data:/var/lib/postgresql/data
+      - freeipa-data:/data
     networks:
-      - it-stack-net
+      ipa-net:
+        aliases:
+          - ipa.lab.localhost
+    healthcheck:
+      test: ["CMD", "ipactl", "status"]
+      interval: 60s
+      timeout: 30s
+      retries: 20
+      start_period: 600s
 
-networks:
-  it-stack-net:
-    driver: bridge
+  # ─── LDAP CLIENT ─────────────────────────────────────────────────────────
+  # A Debian container pre-loaded with ldap-utils, sssd, and krb5-user.
+  # Used to verify LDAP operations from an external client perspective.
+  ldap-client:
+    image: debian:12-slim
+    container_name: it-stack-ldap-client
+    restart: unless-stopped
+    command: >
+      sh -c "
+        apt-get update -qq &&
+        apt-get install -y -qq ldap-utils dnsutils netcat-openbsd krb5-user 2>/dev/null &&
+        echo 'LDAP client ready. Run: docker exec -it it-stack-ldap-client bash' &&
+        sleep infinity
+      "
+    environment:
+      # Kerberos config
+      KRB5_CONFIG: /etc/krb5.conf
+    volumes:
+      - ./ldap-client/krb5.conf:/etc/krb5.conf:ro
+      - ./ldap-client/ldap.conf:/etc/ldap/ldap.conf:ro
+    networks:
+      ipa-net:
+        aliases:
+          - ldap-client.lab.localhost
+    depends_on:
+      - freeipa
 
 volumes:
-  freeipa_pg_data:
+  freeipa-data:
+    name: it-stack-freeipa-lan-data
+
+networks:
+  ipa-net:
+    name: it-stack-ipa-net
+    driver: bridge

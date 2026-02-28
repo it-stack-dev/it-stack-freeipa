@@ -22,7 +22,10 @@ jobs:
           echo "Validating: docker/docker-compose.standalone.yml"
           docker compose -f docker/docker-compose.standalone.yml config -q
           echo "OK: docker/docker-compose.standalone.yml"
-          for f in docker/docker-compose.lan.yml docker/docker-compose.advanced.yml \
+          echo "Validating: docker/docker-compose.lan.yml"
+          docker compose -f docker/docker-compose.lan.yml config -q
+          echo "OK: docker/docker-compose.lan.yml"
+          for f in docker/docker-compose.advanced.yml \
                    docker/docker-compose.sso.yml docker/docker-compose.integration.yml \
                    docker/docker-compose.production.yml; do
             echo "Checking scaffold: $f"
@@ -102,3 +105,28 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker compose -f docker/docker-compose.standalone.yml down -v
+
+  lab-02-smoke:
+    name: Lab 02 — LDAP Client Integration
+    runs-on: ubuntu-latest
+    needs: validate
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate LAN compose (privileged — pull images only)
+        run: |
+          echo "NOTE: FreeIPA requires privileged mode; full test runs on real VMs"
+          docker compose -f docker/docker-compose.lan.yml pull --quiet
+          echo "Images pulled OK"
+
+      - name: Validate compose config is well-formed
+        run: docker compose -f docker/docker-compose.lan.yml config -q
+
+      - name: Verify test script syntax
+        run: bash -n tests/labs/test-lab-01-02.sh
+
+      - name: ShellCheck test script
+        run: |
+          sudo apt-get install -y shellcheck -qq
+          shellcheck tests/labs/test-lab-01-02.sh
