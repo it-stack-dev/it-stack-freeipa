@@ -188,9 +188,11 @@ fi
 # 3.9 Cleanup test user
 info "3.9 — Cleanup test user"
 ipa_exec sh -c "echo '${IPA_ADMIN_PASS}' | kinit admin" > /dev/null 2>&1 || true
-ipa_exec ipa user-del lab01test 2>/dev/null && \
-  pass "Test user 'lab01test' deleted" || \
+if ipa_exec ipa user-del lab01test 2>/dev/null; then
+  pass "Test user 'lab01test' deleted"
+else
   warn "Test user deletion returned non-zero (may already be gone)"
+fi
 
 # ── PHASE 4: Cleanup ──────────────────────────────────────────────────────────
 info "Phase 4: Cleanup"
