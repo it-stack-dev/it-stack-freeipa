@@ -1,53 +1,153 @@
-# Lab 06 — Production: freeipa HA-ready with monitoring and external volumes
+# Lab 06 -- Production: FreeIPA production deployment with full IT-Stack integration
+# NOTE: Requires privileged container -- full runtime test runs on Linux hosts only.
+#       In CI this compose file is validated (config -q) only.
 ---
 services:
   freeipa:
-    image: freeipa/freeipa-server:rocky-9
-    container_name: it-stack-freeipa
+    image: freeipa/freeipa-server:fedora-41
+    container_name: it-stack-freeipa-prod
+    hostname: ipa.lab.local
     restart: always
-    ports:
-      - "389:$firstPort"
-    environment:
-      - IT_STACK_ENV=production
-      - KEYCLOAK_URL=
-      - DB_HOST=
-      - REDIS_HOST=
-      - GRAYLOG_HOST=
+    privileged: true
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
     volumes:
-      - freeipa_data:/var/lib/freeipa
-      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - freeipa-prod-data:/data
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+    environment:
+      IPA_SERVER_IP: 172.22.0.10
+      PASSWORD: "Lab06Password!"
+    networks:
+      ipa-prod-net:
+        ipv4_address: 172.22.0.10
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sk https://localhost/ipa/ui/ | grep -q 'FreeIPA' || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 300s
     deploy:
-      replicas: 1
       resources:
         limits:
-          cpus: "4.0"
-          memory: G
-        reservations:
+          cpus: "2.0"
+          memory: 3G
+
+  kc-db:
+    image: postgres:16-alpine
+    container_name: it-stack-ipa-kc-db-prod
+    restart: always
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: "Lab06Password!"
+    volumes:
+      - ipa-kc-db-prod-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ipa-kc-db-net
+    deploy:
+      resources:
+        limits:
           cpus: "1.0"
           memory: 1G
-      restart_policy:
-        condition: any
-        delay: 5s
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://${GRAYLOG_HOST}:12201"
-        tag: "it-stack-freeipa"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: it-stack-ipa-keycloak-prod
+    restart: always
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://kc-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: "Lab06Password!"
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "Lab06Password!"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+    command: start --optimized
+    ports:
+      - "8080:8080"
+    depends_on:
+      kc-db:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready | grep -q UP || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
       start_period: 120s
     networks:
-      - it-stack-net
+      - ipa-prod-net
+      - ipa-kc-db-net
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: it-stack-ipa-postgres-prod
+    restart: always
+    environment:
+      POSTGRES_DB: labapp
+      POSTGRES_USER: labapp
+      POSTGRES_PASSWORD: "Lab06Password!"
+    volumes:
+      - ipa-postgres-prod-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labapp -d labapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ipa-prod-net
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
+  redis:
+    image: redis:7-alpine
+    container_name: it-stack-ipa-redis-prod
+    restart: always
+    command: redis-server --requirepass Lab06Password! --appendonly yes
+    volumes:
+      - ipa-redis-prod-data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "Lab06Password!", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ipa-prod-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
 
 networks:
-  it-stack-net:
-    external: true
-    name: it-stack-production
+  ipa-prod-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+  ipa-kc-db-net:
+    driver: bridge
+    internal: true
 
 volumes:
-  freeipa_data:
-    external: true
-    name: it-stack-freeipa-data
+  freeipa-prod-data:
+  ipa-kc-db-prod-data:
+  ipa-postgres-prod-data:
+  ipa-redis-prod-data:
