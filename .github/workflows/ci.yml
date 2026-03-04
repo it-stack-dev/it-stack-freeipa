@@ -186,7 +186,7 @@ jobs:
           shellcheck tests/labs/test-lab-01-04.sh
 
   lab-05-smoke:
-    name: Lab 05 -- FreeIPA+KC+PG+Redis integration (syntax check only)
+    name: Lab 05 -- FreeIPA+KC+PG+Redis integration + FreePBX service account (INT-11 syntax check only)
     runs-on: ubuntu-latest
     needs: validate
     continue-on-error: true
