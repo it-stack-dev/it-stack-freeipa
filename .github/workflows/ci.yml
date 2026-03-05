@@ -40,7 +40,7 @@ jobs:
       - name: ShellCheck — lab test scripts
         run: |
           sudo apt-get install -y shellcheck -qq
-          shellcheck tests/labs/*.sh
+          shellcheck --severity=error tests/labs/*.sh
 
       - name: Validate module manifest
         run: |
@@ -133,7 +133,7 @@ jobs:
       - name: ShellCheck test script
         run: |
           sudo apt-get install -y shellcheck -qq
-          shellcheck tests/labs/test-lab-01-02.sh
+          shellcheck --severity=error tests/labs/test-lab-01-02.sh
 
   lab-03-smoke:
     name: Lab 03 — Sudo Rules + HBAC + Password Policy
@@ -158,7 +158,7 @@ jobs:
       - name: ShellCheck test script
         run: |
           sudo apt-get install -y shellcheck -qq
-          shellcheck tests/labs/test-lab-01-03.sh
+          shellcheck --severity=error tests/labs/test-lab-01-03.sh
 
   lab-04-smoke:
     name: Lab 04 — Keycloak LDAP Federation (syntax check only)
@@ -183,7 +183,7 @@ jobs:
       - name: ShellCheck test script
         run: |
           sudo apt-get install -y shellcheck -qq
-          shellcheck tests/labs/test-lab-01-04.sh
+          shellcheck --severity=error tests/labs/test-lab-01-04.sh
 
   lab-05-smoke:
     name: Lab 05 -- FreeIPA+KC+PG+Redis integration + FreePBX service account (INT-11 syntax check only)
@@ -208,7 +208,7 @@ jobs:
       - name: ShellCheck test script
         run: |
           sudo apt-get install -y shellcheck -qq
-          shellcheck tests/labs/test-lab-01-05.sh
+          shellcheck --severity=error tests/labs/test-lab-01-05.sh
 
   lab-06-smoke:
     name: Lab 06 — FreeIPA Production HA (privileged — syntax check only)
@@ -233,4 +233,4 @@ jobs:
       - name: ShellCheck test script
         run: |
           sudo apt-get install -y shellcheck -qq
-          shellcheck tests/labs/test-lab-01-06.sh
+          shellcheck --severity=error tests/labs/test-lab-01-06.sh
